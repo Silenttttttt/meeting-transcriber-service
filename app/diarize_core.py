@@ -52,6 +52,8 @@ def _run_pipeline(hf_token: str, wav_path: str) -> list[tuple[float, float, str]
     """Load the pipeline, diarize, return raw segments. The pipeline itself
     is freed on function return (refcount -> 0), same as the original."""
     import torch
+    import inspect
+
     from pyannote.audio import Pipeline
 
     if not torch.cuda.is_available():
@@ -60,7 +62,26 @@ def _run_pipeline(hf_token: str, wav_path: str) -> list[tuple[float, float, str]
             "(there is no CPU fallback here; see README)."
         )
 
-    pipeline = Pipeline.from_pretrained("pyannote/speaker-diarization-3.1", token=hf_token)
+    # pyannote.audio renamed this kwarg across versions: older releases (and,
+    # confirmed empirically, 3.4.0 - what actually resolves from this
+    # project's `pyannote.audio>=3.3.2,<4.0` pin alongside the pinned torch
+    # version) take `use_auth_token`; some other releases take `token`
+    # instead. Inspecting the real installed signature rather than hardcoding
+    # either name means this keeps working across whichever version a given
+    # build actually resolves, instead of silently breaking on an
+    # unexpected-keyword-argument TypeError the way a hardcoded guess did the
+    # first time this was deployed.
+    sig = inspect.signature(Pipeline.from_pretrained)
+    if "token" in sig.parameters:
+        auth_kwargs = {"token": hf_token}
+    elif "use_auth_token" in sig.parameters:
+        auth_kwargs = {"use_auth_token": hf_token}
+    else:
+        raise DiarizationError(
+            "installed pyannote.audio's Pipeline.from_pretrained() has neither a "
+            "'token' nor a 'use_auth_token' parameter - incompatible version installed"
+        )
+    pipeline = Pipeline.from_pretrained("pyannote/speaker-diarization-3.1", **auth_kwargs)
     pipeline.to(torch.device("cuda"))
     result_raw = pipeline(wav_path)
 

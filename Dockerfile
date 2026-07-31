@@ -8,6 +8,21 @@ FROM pytorch/pytorch:2.4.1-cuda12.1-cudnn9-runtime
 
 WORKDIR /app
 
+# This image is meant to run under an arbitrary, non-root UID assigned at
+# deploy time (confirmed live: this cluster's own generator picks a
+# per-app UID with no matching /etc/passwd entry or real home directory) -
+# with the default $HOME (/root, or unset -> "/"), torch/whisper/pyannote/
+# matplotlib all fail to create their cache dirs (`mkdir -p /.cache: Permission
+# denied` was a real, observed failure). /tmp is writable by any UID
+# regardless (sticky bit), so pointing $HOME there fixes every one of those
+# caches at once, for any UID this runs as - not just this cluster's.
+# Set BEFORE the Whisper pre-bake step below so the weights are cached at
+# the same path ($HOME/.cache/whisper) the runtime container will look in;
+# if this were set only at runtime, the pre-baked weights (cached under
+# whatever $HOME the build ran as) would go unused and get re-downloaded
+# on first request anyway.
+ENV HOME=/tmp
+
 # ffmpeg is a hard runtime dependency of openai-whisper (it shells out to
 # it to decode/resample audio); git is needed by pip to fetch a couple of
 # pyannote.audio's own git-based transitive dependencies.
