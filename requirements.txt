@@ -1,0 +1,17 @@
+# torch/torchaudio are pinned to match the versions already baked into the
+# Dockerfile's base image (pytorch/pytorch:2.4.1-cuda12.1-cudnn9-runtime).
+# Pinning here (rather than leaving them unconstrained) stops pip from
+# resolving a different build to satisfy pyannote.audio's/openai-whisper's
+# own torch requirement and silently replacing the base image's
+# CUDA-enabled build with a mismatched one.
+torch==2.4.1
+torchaudio==2.4.1
+
+openai-whisper==20250625
+pyannote.audio>=3.3.2,<4.0
+
+fastapi>=0.115,<1.0
+uvicorn[standard]>=0.30,<1.0
+python-multipart>=0.0.9
+python-dotenv>=1.0.0
+pydantic>=2.0,<3.0
