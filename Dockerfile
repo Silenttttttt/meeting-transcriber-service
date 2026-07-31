@@ -48,6 +48,17 @@ ARG WHISPER_MODEL=large-v3
 ENV WHISPER_MODEL=${WHISPER_MODEL}
 RUN python -c "import os, whisper; whisper.load_model(os.environ['WHISPER_MODEL'], device='cpu')"
 
+# The pre-bake step above just created $HOME/.cache (owned by root, normal
+# 755 perms) - readable by any UID (so the pre-baked Whisper weights load
+# fine), but NOT writable, so anything that wants to create a NEW cache
+# entry under it at runtime (matplotlib's font cache, pyannote's own
+# huggingface_hub download cache) can't, under whatever arbitrary UID this
+# actually runs as. Confirmed live: matplotlib recovered on its own with a
+# throwaway /tmp dir (just a warning), but this makes the real, intended
+# cache dir writable instead of relying on every library's own fallback
+# behaving the same way.
+RUN chmod -R 777 /tmp/.cache
+
 COPY app/ ./app/
 COPY run_diarize.py .
 

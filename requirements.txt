@@ -10,6 +10,17 @@ torchaudio==2.4.1
 openai-whisper==20250625
 pyannote.audio>=3.3.2,<4.0
 
+# Pinned - found via a real deploy failure, not a guess: pyannote.audio
+# 3.4.0 (what >=3.3.2,<4.0 resolves to) calls huggingface_hub's
+# hf_hub_download() internally with use_auth_token=, a parameter name
+# huggingface_hub itself has fully removed as of its 1.x releases (an
+# unrelated, unpinned transitive dependency had drifted forward and broken
+# pyannote's own internal call - not something fixable from this project's
+# side, since that call lives inside pyannote.audio's code, not this
+# service's). 0.24.6 is a real, stable pre-1.0 release that still supports
+# use_auth_token.
+huggingface_hub==0.24.6
+
 fastapi>=0.115,<1.0
 uvicorn[standard]>=0.30,<1.0
 python-multipart>=0.0.9
