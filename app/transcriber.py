@@ -77,9 +77,39 @@ def _unload_model(model):
     torch.cuda.empty_cache()
 
 
+def _free_cuda_best_effort() -> None:
+    """Used when there's no `model` object to `del` - e.g. `_load_model()`
+    itself failed partway through (confirmed live: `whisper.load_model()`
+    can raise `torch.OutOfMemoryError` from inside `model.to(device)`,
+    AFTER some tensors were already allocated on the GPU). Still worth
+    calling `empty_cache()` in that case - some of what was allocated
+    before the failure is often reclaimable."""
+    import gc
+
+    import torch
+
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+        torch.cuda.empty_cache()
+
+
 def _transcribe_sync(path: str, language: str) -> str:
-    model = _load_model()
+    # `model` starts as None and `_load_model()` itself runs INSIDE the
+    # try/finally (unlike the original source tool, where `model =
+    # _load_model()` sat OUTSIDE the try/finally) - a real, observed bug
+    # this fixes: a `_load_model()` failure (a real CUDA OOM during
+    # `.to(device)`, hit live in this same server process) used to skip
+    # `_unload_model`/cleanup entirely, since the exception propagated
+    # before `model` was ever assigned and the try block was ever
+    # entered. That's harmless for the original one-shot CLI tool (the
+    # whole process exits right after anyway) but leaks GPU memory across
+    # requests in a long-lived server process - confirmed live: a failed
+    # load left several GB stuck allocated to this pod's process even
+    # after the request had already failed and returned.
+    model = None
     try:
+        model = _load_model()
         result = model.transcribe(path, language=language, **_WHISPER_KWARGS)
         text = " ".join(
             s["text"].strip()
@@ -88,12 +118,17 @@ def _transcribe_sync(path: str, language: str) -> str:
         )
         return text.strip()
     finally:
-        _unload_model(model)
+        if model is not None:
+            _unload_model(model)
+        else:
+            _free_cuda_best_effort()
 
 
 def _transcribe_sync_segments(path: str, language: str) -> list:
-    model = _load_model()
+    # See `_transcribe_sync`'s comment - same fix, same reason.
+    model = None
     try:
+        model = _load_model()
         result = model.transcribe(path, language=language, **_WHISPER_KWARGS)
         out = []
         for s in result.get("segments", []):
@@ -102,7 +137,10 @@ def _transcribe_sync_segments(path: str, language: str) -> list:
                 out.append((s["start"], text))
         return out
     finally:
-        _unload_model(model)
+        if model is not None:
+            _unload_model(model)
+        else:
+            _free_cuda_best_effort()
 
 
 async def transcribe_audio(audio: BytesIO, language: str = "pt", **_) -> str:

@@ -176,8 +176,19 @@ async def transcribe(
             except RuntimeError as exc:
                 raise HTTPException(status_code=500, detail=f"mic diarization failed: {exc}") from exc
 
-        remote_segments = await transcribe_audio_segments(io.BytesIO(remote_bytes), language)
-        mic_segments = await transcribe_audio_segments(io.BytesIO(mic_bytes), language)
+        # Whisper transcription failures (a real CUDA OutOfMemoryError was
+        # observed live on this cluster's shared desktop/GPU-node machine,
+        # competing with other real GPU usage on the same box) previously
+        # propagated as an unhandled exception, which FastAPI's default
+        # handler turns into a plain-text, non-JSON 500 - failing the same
+        # "always return well-formed JSON" contract diarization failures
+        # already respected. Caught here the same way for the same reason.
+        try:
+            remote_segments = await transcribe_audio_segments(io.BytesIO(remote_bytes), language)
+            mic_segments = await transcribe_audio_segments(io.BytesIO(mic_bytes), language)
+        except Exception as exc:
+            logger.exception("transcription failed")
+            raise HTTPException(status_code=500, detail=f"transcription failed: {exc}") from exc
 
         all_segs: list = []
         for wav_sec, text in remote_segments:
